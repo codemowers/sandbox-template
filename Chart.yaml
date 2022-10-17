@@ -1,0 +1,7 @@
+apiVersion: v2
+name: lab
+description: Codemowers lab setup
+type: application
+version: 0.1.0
+appVersion: 0.0.1
+# kubectl create secret -n playground-laurivosandi generic argocd-secret

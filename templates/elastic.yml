@@ -1,0 +1,223 @@
+{{ if eq .Values.logging "eck" }}
+---
+apiVersion: beat.k8s.elastic.co/v1beta1
+kind: Beat
+metadata:
+  name: filebeat
+spec:
+  type: filebeat
+  version: 8.4.3
+  elasticsearchRef:
+    name: elasticsearch
+  config:
+    logging:
+      level: warning
+    http:
+      enabled: true
+      port: 5066
+    filebeat:
+      autodiscover:
+        providers:
+        - type: kubernetes
+          node: ${NODE_NAME}
+          hints:
+            enabled: true
+            default_config:
+              enabled: false
+          templates:
+            - condition:
+                and:
+                  - has_fields: ['kubernetes.container.id']
+                  - equals:
+                      kubernetes.namespace: "{{- .Release.Namespace }}"
+#                  - equals:
+#                      kubernetes.namespace: "back"
+              config:
+                - type: container
+                  paths:
+                    - "/var/log/containers/*-${data.kubernetes.container.id}.log"
+#              type: container
+#              paths:
+#              - /var/log/containers/*_playground-laurivosandi_*${data.kubernetes.container.id}.log
+  daemonSet:
+    podTemplate:
+      metadata:
+        annotations:
+          co.elastic.logs/enabled: 'false'
+      spec:
+        serviceAccountName: filebeat
+        automountServiceAccountToken: true
+        terminationGracePeriodSeconds: 30
+        containers:
+        - name: filebeat
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+          - name: varlogcontainers
+            mountPath: /var/log/containers
+          - name: varlogpods
+            mountPath: /var/log/pods
+          - name: varlibdockercontainers
+            mountPath: /var/lib/docker/containers
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            limits:
+              memory: 200Mi
+            requests:
+              cpu: 100m
+              memory: 100Mi
+        - name: exporter
+          image: sepa/beats-exporter
+          args:
+            - -p=5066
+          ports:
+            - containerPort: 8080
+              name: exporter
+              protocol: TCP
+        volumes:
+        - name: varlogcontainers
+          hostPath:
+            path: /var/log/containers
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filebeat
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: "{{ .Release.Namespace }}-filebeat"
+subjects:
+- kind: ServiceAccount
+  name: filebeat
+  namespace: "{{ .Release.Namespace }}"
+roleRef:
+  kind: ClusterRole
+  name: filebeat
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: elasticsearch
+spec:
+  version: 8.4.3
+  nodeSets:
+  - name: default
+    count: 1
+    volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+        storageClassName: longhorn
+  http:
+    tls:
+      selfSignedCertificate:
+        disabled: true
+---
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: kibana
+spec:
+  version: 8.4.3
+  count: 1
+  elasticsearchRef:
+    name: elasticsearch
+  http:
+    tls:
+      selfSignedCertificate:
+        disabled: true
+  config:
+    server.publicBaseUrl: https://kibana{{- template "hostname-suffix" . }}
+    xpack.reporting.enabled: false
+    xpack.apm.ui.enabled: false
+    xpack.security.authc.providers:
+      anonymous.anonymous1:
+        order: 0
+        credentials:
+          username: "elastic"
+  secureSettings:
+  - secretName: elasticsearch-es-elastic-user
+    entries:
+    - key: elastic
+      path: xpack.security.authc.providers.anonymous.anonymous1.credentials.password
+  podTemplate:
+    metadata:
+      annotations:
+        co.elastic.logs/enabled: 'false'
+    spec:
+      containers:
+        - name: kibana
+          readinessProbe:
+            httpGet:
+              path: /app/home
+              port: 5601
+              scheme: HTTP
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kibana
+  annotations:
+    {{ template "ingress-annotations" }}
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: "{{ .Release.Namespace }}-sso@kubernetescrd"
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  rules:
+  - host: kibana{{- template "hostname-suffix" . }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: kibana-kb-http
+            port:
+              number: 5601
+{{- template "tls" . }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: filebeat
+spec:
+  selector:
+    matchLabels:
+      beat.k8s.elastic.co/name: filebeat
+  podMetricsEndpoints:
+    - port: exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: elasticsearch
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: elasticsearch-exporter
+  podMetricsEndpoints:
+    - port: exporter
+{{ end }}

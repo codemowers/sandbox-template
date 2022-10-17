@@ -1,0 +1,338 @@
+{{ if .Values.traefik }}
+---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: traefik
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: "{{ .Release.Namespace }}-traefik"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k6-traefik
+subjects:
+  - kind: ServiceAccount
+    name: traefik
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik
+  annotations:
+    keel.sh/policy: minor
+    keel.sh/pollSchedule: '@midnight'
+    keel.sh/trigger: patch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  minReadySeconds: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: traefik
+    spec:
+      serviceAccountName: traefik
+      terminationGracePeriodSeconds: 60
+      hostNetwork: false
+      containers:
+      - image: "traefik:2.9"
+        name: traefik
+        resources:
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: 9000
+          failureThreshold: 1
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 2
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: 9000
+          failureThreshold: 3
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 2
+        ports:
+        - name: "metrics"
+          containerPort: 9100
+          protocol: "TCP"
+        - name: "traefik"
+          containerPort: 9000
+          protocol: "TCP"
+        - name: "web"
+          containerPort: 8000
+          protocol: "TCP"
+        - name: "websecure"
+          containerPort: 8443
+          protocol: "TCP"
+        securityContext:
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65532
+          runAsNonRoot: true
+          runAsUser: 65532
+        volumeMounts:
+          - name: data
+            mountPath: /data
+          - name: tmp
+            mountPath: /tmp
+        args:
+          - "--entryPoints.web.http.redirections.entryPoint.to=:443"
+          - "--entryPoints.web.http.redirections.entryPoint.scheme=https"
+          - "--entrypoints.metrics.address=:9100/tcp"
+          - "--entrypoints.traefik.address=:9000/tcp"
+          - "--entrypoints.web.address=:8000/tcp"
+          - "--entrypoints.websecure.address=:8443/tcp"
+          - "--api.dashboard=true"
+          - "--ping=true"
+          - "--metrics.prometheus=true"
+          - "--metrics.prometheus.entrypoint=metrics"
+          - "--providers.kubernetescrd"
+          - "--providers.kubernetescrd.ingressclass={{ .Release.Namespace }}"
+          - "--providers.kubernetesingress"
+          - "--providers.kubernetesingress.ingressclass={{ .Release.Namespace }}"
+          - "--accesslog=true"
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      securityContext:
+        fsGroup: 65532
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-dashboard
+spec:
+  selector:
+    app.kubernetes.io/name: traefik
+  ports:
+    - protocol: TCP
+      port: 9000
+      targetPort: 9000
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  annotations:
+    kubernetes.io/ingress.class: {{ .Release.Namespace }}
+spec:
+  entryPoints:
+  - traefik
+  routes:
+  - match: PathPrefix(`/dashboard`) || PathPrefix(`/api`)
+    kind: Rule
+    services:
+    - name: api@internal
+      kind: TraefikService
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: traefik-dashboard
+  annotations:
+    kubernetes.io/ingress.class: {{ .Release.Namespace }}
+    cert-manager.io/cluster-issuer: default
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+#    traefik.ingress.kubernetes.io/router.middlewares: traefik-sso@kubernetescrd,traefik-dashboard-redirect@kubernetescrd
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  rules:
+  - host: traefik{{- template "hostname-suffix" . }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: traefik-dashboard
+            port:
+              number: 9000
+{{- template "tls" . }}
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: dashboard-redirect
+spec:
+  redirectRegex:
+    regex: ^https://traefik{{- template "hostname-suffix" . }}/?$
+    replacement: https://traefik{{- template "hostname-suffix" . }}/dashboard/
+    permanent: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: traefik{{- template "hostname-suffix" . }}
+    metallb.universe.tf/address-pool: eenet
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: traefik
+  ports:
+  - port: 80
+    name: web
+    targetPort: "web"
+    protocol: TCP
+  - port: 443
+    name: websecure
+    targetPort: "websecure"
+    protocol: TCP
+{{ if .Values.dex }}
+---
+apiVersion: codemowers.io/v1alpha1
+kind: OIDCApplication
+metadata:
+  name: "dex{{- template "hostname-suffix" . }}"
+spec:
+  secretRef:
+    name: traefik-forward-auth-oidc-secret
+    key: PROVIDERS_OIDC_CLIENT_SECRET
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traefik-forward-auth
+data:
+  COOKIE_DOMAIN: "{{- template "domain" . }}"
+  AUTH_HOST: "auth{{- template "hostname-suffix" . }}"
+  DEFAULT_PROVIDER: "oidc"
+  PROVIDERS_OIDC_ISSUER_URL: "https://dex{{- template "hostname-suffix" . }}/"
+  PROVIDERS_OIDC_CLIENT_ID: "traefik"
+  COOKIE_NAME: "_forward_auth__playground_{{ .Values.username }}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik-forward-auth
+  labels:
+    app: traefik-forward-auth
+spec:
+  replicas: 1
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app: traefik-forward-auth
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: traefik-forward-auth
+      annotations:
+        keel.sh/policy: minor
+        keel.sh/trigger: poll
+        keel.sh/pollSchedule: "@midnight"
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+      - image: thomseddon/traefik-forward-auth:2
+        name: traefik-forward-auth
+        resources:
+          requests:
+            cpu: 1m
+        ports:
+        - containerPort: 4181
+          protocol: TCP
+        envFrom:
+          - configMapRef:
+              name: traefik-forward-auth-config
+          - secretRef:
+              name: traefik-forward-auth-cookie-secrets
+          - secretRef:
+              name: traefik-forward-auth-oidc-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-forward-auth
+  labels:
+    app: traefik-forward-auth
+spec:
+  type: ClusterIP
+  selector:
+    app: traefik-forward-auth
+  ports:
+  - name: auth-http
+    port: 4181
+    targetPort: 4181
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: sso
+spec:
+  forwardAuth:
+    address: http://traefik-forward-auth:4181
+    authResponseHeaders:
+      - X-Forwarded-User
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: auth
+  annotations:
+    kubernetes.io/ingress.class: "{{ .Release.Namespace }}"
+    external-dns.alpha.kubernetes.io/target: traefik{{- template "hostname-suffix" . }}
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: {{ .Release.Namespace }}-sso@kubernetescrd
+spec:
+{{- template "tls" . }}
+  rules:
+  - host: "auth{{- template "hostname-suffix" . }}"
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: traefik-forward-auth
+            port:
+              number: 4181
+---
+apiVersion: codemowers.io/v1alpha1
+kind: GeneratedSecret
+metadata:
+  name: traefik-forward-auth-cookie-secrets
+spec:
+  mapping:
+    - key: SECRET
+      value: "%(password)s"
+{{ end }}
+{{ if .Values.prometheus }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: traefik
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  podMetricsEndpoints:
+    - port: metrics
+{{ end }}
+{{ end }}
