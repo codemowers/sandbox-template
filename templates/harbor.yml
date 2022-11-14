@@ -1,0 +1,10 @@
+{{ if .Values.harbor_project }}
+---
+apiVersion: codemowers.io/v1alpha1
+kind: HarborProject
+metadata:
+  name: default
+spec:
+  pullSecrets: true
+  pushSecrets: true
+{{ end }}
