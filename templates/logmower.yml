@@ -1,4 +1,4 @@
-{{ if.Values.logging }}
+{{ if.Values.dedicated_logging }}
 ---
 apiVersion: codemowers.io/v1alpha1
 kind: GeneratedSecret
