@@ -1,10 +1,31 @@
 {{ if .Values.harbor_project }}
 ---
 apiVersion: codemowers.io/v1alpha1
-kind: HarborProject
+kind: HarborCredential
 metadata:
-  name: default
+  name: kaniko
 spec:
-  pullSecrets: true
-  pushSecrets: true
+  project: {{ .Values.username }}
+  key: config.json
+  permissions:
+    - resource: repository
+      action: pull
+    - resource: tag
+      action: create
+    - resource: repository
+      action: push
+{{ end }}
+{{ if .Values.harbor_project }}
+---
+apiVersion: codemowers.io/v1alpha1
+kind: HarborCredential
+metadata:
+  name: regcred
+spec:
+  project: {{ .Values.username }}
+  type: kubernetes.io/dockerconfigjson
+  key: .dockerconfigjson
+  permissions:
+    - resource: repository
+      action: pull
 {{ end }}
