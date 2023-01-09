@@ -18,7 +18,7 @@ spec:
   podMonitorSelector: {}
   probeSelector: {}
   ruleSelector: {}
-  retentionSize: 8GB
+  retentionSize: 800MiB
   storage:
     volumeClaimTemplate:
       spec:
@@ -26,8 +26,8 @@ spec:
         - ReadWriteOnce
         resources:
           requests:
-            storage: 10Gi
-        storageClassName: local-path
+            storage: 1Gi
+        storageClassName: prometheus
 ---
 apiVersion: v1
 kind: ServiceAccount
