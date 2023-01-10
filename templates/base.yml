@@ -49,5 +49,5 @@ subjects:
   apiGroup: rbac.authorization.k8s.io
 roleRef:
   kind: ClusterRole
-  name: cluster-admin
+  name: playground-users
   apiGroup: rbac.authorization.k8s.io
