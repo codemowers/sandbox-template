@@ -44,7 +44,7 @@ metadata:
   name: playground-user-{{ .Values.username }}
 subjects:
 - kind: User
-  name: "{{ .Values.email }}"
+  name: "https://dex.codemowers.eu/#{{ .Values.username }}"
   apiGroup: rbac.authorization.k8s.io
 roleRef:
   kind: ClusterRole
