@@ -44,7 +44,7 @@ metadata:
   name: playground-user-{{ .Values.username }}
 subjects:
 - kind: User
-  name: "https://dex.codemowers.eu/#{{ .Values.username }}"
+  name: "https://auth.codemowers.eu/#{{ .Values.username }}"
   apiGroup: rbac.authorization.k8s.io
 roleRef:
   kind: ClusterRole
@@ -57,7 +57,7 @@ metadata:
   name: playground-user-{{ .Values.username }}-clusterwide
 subjects:
 - kind: User
-  name: "https://dex.codemowers.eu/#{{ .Values.username }}"
+  name: "https://auth.codemowers.eu/#{{ .Values.username }}"
   apiGroup: rbac.authorization.k8s.io
 roleRef:
   kind: ClusterRole
