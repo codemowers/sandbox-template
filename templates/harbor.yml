@@ -1,5 +1,12 @@
 ---
 apiVersion: codemowers.cloud/v1beta1
+kind: ClusterHarborProject
+metadata:
+  name: {{ .Values.username }}
+spec:
+  quota: 10Gi
+---
+apiVersion: codemowers.cloud/v1beta1
 kind: HarborCredential
 metadata:
   name: kaniko
