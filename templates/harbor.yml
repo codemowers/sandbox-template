@@ -1,5 +1,5 @@
 ---
-apiVersion: codemowers.io/v1alpha1
+apiVersion: codemowers.cloud/v1beta1
 kind: HarborCredential
 metadata:
   name: kaniko
@@ -14,7 +14,7 @@ spec:
     - resource: repository
       action: push
 ---
-apiVersion: codemowers.io/v1alpha1
+apiVersion: codemowers.cloud/v1beta1
 kind: HarborCredential
 metadata:
   name: regcred
