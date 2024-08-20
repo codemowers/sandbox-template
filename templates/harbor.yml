@@ -6,6 +6,15 @@ metadata:
 spec: {}
 ---
 apiVersion: codemowers.cloud/v1beta1
+kind: ClusterHarborProjectMember
+metadata:
+  name: {{ .Values.username }}
+spec:
+  project: {{ .Values.username }}
+  username: {{ .Values.username }}
+  role: PROJECT_ADMIN
+---
+apiVersion: codemowers.cloud/v1beta1
 kind: HarborCredential
 metadata:
   name: kaniko
