@@ -1,4 +1,3 @@
-{{ if .Values.harbor_project }}
 ---
 apiVersion: codemowers.io/v1alpha1
 kind: HarborCredential
@@ -14,8 +13,6 @@ spec:
       action: create
     - resource: repository
       action: push
-{{ end }}
-{{ if .Values.harbor_project }}
 ---
 apiVersion: codemowers.io/v1alpha1
 kind: HarborCredential
@@ -28,4 +25,3 @@ spec:
   permissions:
     - resource: repository
       action: pull
-{{ end }}
