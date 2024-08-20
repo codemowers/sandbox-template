@@ -3,8 +3,7 @@ apiVersion: codemowers.cloud/v1beta1
 kind: ClusterHarborProject
 metadata:
   name: {{ .Values.username }}
-spec:
-  quota: 10Gi
+spec: {}
 ---
 apiVersion: codemowers.cloud/v1beta1
 kind: HarborCredential
